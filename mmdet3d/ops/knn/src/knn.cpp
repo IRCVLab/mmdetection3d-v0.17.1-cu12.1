@@ -3,15 +3,16 @@
 #include <torch/serialize/tensor.h>
 #include <torch/extension.h>
 #include <vector>
-#include <THC/THC.h>
 #include <ATen/cuda/CUDAContext.h>
+#include <cuda.h>
+#include <cuda_runtime_api.h>
 
-extern THCState *state;
+// THCState removed in modern PyTorch (ATen handles context internally)
+// extern THCState *state;  // <-- removed
 
 #define CHECK_CUDA(x) TORCH_CHECK(x.is_cuda(), #x, " must be a CUDAtensor ")
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x, " must be contiguous ")
-#define CHECK_INPUT(x) CHECK_CUDA(x);CHECK_CONTIGUOUS(x)
-
+#define CHECK_INPUT(x) CHECK_CUDA(x); CHECK_CONTIGUOUS(x)
 
 void knn_kernel_launcher(
     int b,
@@ -23,9 +24,13 @@ void knn_kernel_launcher(
     int *idx,
     float *dist2,
     cudaStream_t stream
-    );
+);
 
-void knn_wrapper(int b, int n, int m, int nsample, at::Tensor xyz_tensor, at::Tensor new_xyz_tensor, at::Tensor idx_tensor, at::Tensor dist2_tensor)
+void knn_wrapper(int b, int n, int m, int nsample,
+                 at::Tensor xyz_tensor,
+                 at::Tensor new_xyz_tensor,
+                 at::Tensor idx_tensor,
+                 at::Tensor dist2_tensor)
 {
     CHECK_INPUT(new_xyz_tensor);
     CHECK_INPUT(xyz_tensor);
@@ -35,11 +40,11 @@ void knn_wrapper(int b, int n, int m, int nsample, at::Tensor xyz_tensor, at::Te
     int *idx = idx_tensor.data_ptr<int>();
     float *dist2 = dist2_tensor.data_ptr<float>();
 
+    // Use ATen CUDA stream API instead of THC
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     knn_kernel_launcher(b, n, m, nsample, xyz, new_xyz, idx, dist2, stream);
 }
-
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("knn_wrapper", &knn_wrapper, "knn_wrapper");
